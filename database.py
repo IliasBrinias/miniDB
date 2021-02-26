@@ -395,7 +395,8 @@ class Database:
         self._update()
         self.save()
 
-    def inner_join(self, left_table_name, right_table_name, condition, save_as=None, return_object=False):
+    def inner_join(self, left_table_name, right_table_name, condition, save_as=None, return_object=False,
+                   hash_type="nested_loop"):
         '''
         Join two tables that are part of the database where condition is met.
         left_table_name -> left table's name (needs to exist in database)
@@ -405,6 +406,7 @@ class Database:
                     'value[<,<=,==,>=,>]column'.
 
                     operatores supported -> (<,<=,==,>=,>)
+
         save_as -> The name that will be used to save the resulting table in the database. Def: None (no save)
         return_object -> If true, the result will be a table object (usefull for internal usage). Def: False (the result will be printed)
         '''
@@ -415,34 +417,28 @@ class Database:
 
         self.lockX_table(left_table_name)
         self.lockX_table(right_table_name)
-        if self._has_index(left_table_name) or self._has_index(right_table_name):
-            condition_left, operator, condition_right = split_condition(condition)
-            left_indexes = self.select('meta_indexes', '*', f'table_name=={left_table_name}', return_object=True).data
-            right_indexes = self.select('meta_indexes', '*', f'table_name=={right_table_name}', return_object=True).data
 
-            hi = None
-            # check for the left table
-            for row in left_indexes:
-                # if we find the index for the specific column
-                if 'hashindex' in row and condition_left in row:
-                    hi = self._load_idx(row[2])
-                    # the table that it doesnt has index we use it like 'object'
-                    res = self.tables[right_table_name]._inner_join(self.tables[left_table_name], condition, hi)
-                    break
-
-            # if we didnt find the index
-            if hi is None:
+        if hash_type == "nested_loop":  # nested loop -> inner_join
+            res = self.tables[left_table_name]._inner_join(self.tables[right_table_name], condition)
+        elif hash_type == "hash":  # hash -> hash_join
+            if self._has_index(right_table_name):
+                condition_left, operator, condition_right = split_condition(condition)
+                right_indexes = self.select('meta_indexes', '*', f'table_name=={right_table_name}',
+                                            return_object=True).data
+                hi = None
+                # check for the left table
                 for row in right_indexes:
                     if 'hashindex' in row and condition_right in row:
                         hi = self._load_idx(row[2])
-                        res = self.tables[left_table_name]._inner_join(self.tables[right_table_name], condition, hi)
+                        res = self.tables[left_table_name]._hash_join(self.tables[right_table_name], condition, hi)
                         break
-                # if both tables dont have index call the original _inner_join
+                # if right table don't have hash index call the _hash_join with the hi == None
                 if hi is None:
-                    res = self.tables[left_table_name]._inner_join(self.tables[right_table_name], condition)
+                    res = self.tables[left_table_name]._hash_join(self.tables[right_table_name], condition, hi)
+            else:
+                res = self.tables[left_table_name]._hash_join(self.tables[right_table_name], condition, hi=None)
         else:
-            res = self.tables[left_table_name]._inner_join(self.tables[right_table_name], condition)
-
+            print("### ERROR WITH hash_type VALUE")
         self.unlock_table(left_table_name)
         self.unlock_table(right_table_name)
 
@@ -573,6 +569,7 @@ class Database:
         self.tables['meta_insert_stack']._update_row(new_stack, 'indexes', f'table_name=={table_name}')
 
     # indexes
+    ### task: 1.3 hash indexes start
     def create_index(self, table_name, index_name, index_type='Btree', column_name=None):
         '''
         Create an index on a specified table with a given name.
@@ -581,7 +578,6 @@ class Database:
         table_name -> table's name (needs to exist in database)
         index_name -> name of the created index
         '''
-
         index_type_formated = index_type.replace(" ", "").replace("-", "").lower()
 
         # handle the exceptions for the indexes

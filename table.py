@@ -3,6 +3,7 @@ from tabulate import tabulate
 from hashIndex import HashIndex
 import pickle
 from misc import get_op, split_condition
+from hashIndex import HashIndex
 
 
 # test
@@ -166,7 +167,7 @@ class Table:
                 self.data.pop(index)
 
         self._update()
-        print(f"Deleted {len(indexes_to_del)} rows ["+self._name+"]")
+        print(f"Deleted {len(indexes_to_del)} rows [" + self._name + "]")
         # we have to return the deleted indexes, since they will be appended to the insert_stack
         return indexes_to_del, deleted_rows
 
@@ -329,7 +330,63 @@ class Table:
         self.data = [self.data[i] for i in idx]
         self._update()
 
-    def _inner_join(self, table_right: Table, condition, hi:HashIndex=None):
+    def _hash_join(self, table_right: Table, condition, hi: HashIndex = None):
+        '''
+        Hash Join table (left) with a supplied table (right) where condition is met.
+        '''
+        # get columns and operator
+        column_name_left, operator, column_name_right = self._parse_condition(condition, join=True)
+        # try to find both columns, if you fail raise error
+        try:
+            column_index_left = self.column_names.index(column_name_left)
+        except:
+            raise Exception(f'Columns dont exist in one or both tables.')
+
+        # get the column names of both tables with the table name in front
+        # ex. for left -> name becomes left_table_name_name etc
+        left_names = [f'{self._name}_{colname}' for colname in self.column_names]
+        right_names = [f'{table_right._name}_{colname}' for colname in table_right.column_names]
+
+        # define the new tables name, its column names and types
+        join_table_name = f'{self._name}_join_{table_right._name}'
+        join_table_colnames = left_names + right_names
+        join_table_coltypes = self.column_types + table_right.column_types
+        join_table = Table(name=join_table_name, column_names=join_table_colnames, column_types=join_table_coltypes)
+
+        # count the number of operations (<,> etc)
+        no_of_ops = 0
+
+        # Create Hash index if the right table hasn't Hash Index
+        if hi is None:
+            # creating a temporary HashIndex
+            h = HashIndex(8)
+            # find column index
+            column_names = table_right.column_names
+            if column_name_right in column_names:
+                column_index = column_names.index(column_name_right)
+            else:
+                print("#ERROR - Column doesn't exist in table")
+                return
+
+            for idx, key in enumerate(table_right.columns[column_index]):
+                h.insert(key, idx)
+            # This index isn't saved in meta tables
+            hi = h
+
+        # do the classic hash join algorithm
+        for row_left in self.data:
+            left_value = row_left[column_index_left]
+            left_row_idx = hi.find(left_value)
+            for idx in left_row_idx:
+                join_table._insert(row_left + table_right.data[idx])
+
+        print(f'## Select ops no. -> {no_of_ops}')
+        print(f'# Left table size -> {len(self.data)}')
+        print(f'# Right table size -> {len(table_right.data)}')
+
+        return join_table
+
+    def _inner_join(self, table_right: Table, condition):
         '''
         Join table (left) with a supplied table (right) where condition is met.
         '''
@@ -357,30 +414,20 @@ class Table:
         no_of_ops = 0
         # this code is dumb on purpose... it needs to illustrate the underline technique
         # for each value in left column and right column, if condition, append the corresponding row to the new table
+        for row_left in self.data:
+            left_value = row_left[column_index_left]
+            for row_right in table_right.data:
+                right_value = row_right[column_index_right]
+                no_of_ops += 1
+                if get_op(operator, left_value, right_value):  # EQ_OP
+                    join_table._insert(row_left + row_right)
 
-        # checks if the hi object isn't null
-        # and find with Hashindex the idx from the right table
-        # ! the hi object is for the right table !
-        if hi is not None:
-            for row_left in self.data:
-                left_value = row_left[column_index_left]
-                left_row_idx = hi.find(left_value)
-                for idx in left_row_idx:
-                    join_table._insert(row_left + table_right.data[idx])
-        else:
-            for row_left in self.data:
-                left_value = row_left[column_index_left]
-                for row_right in table_right.data:
-                    right_value = row_right[column_index_right]
-                    no_of_ops += 1
-                    if get_op(operator, left_value, right_value):  # EQ_OP
-                        join_table._insert(row_left + row_right)
-        # ----
         print(f'## Select ops no. -> {no_of_ops}')
         print(f'# Left table size -> {len(self.data)}')
         print(f'# Right table size -> {len(table_right.data)}')
 
         return join_table
+
 
     def show(self, no_of_rows=None, is_locked=False):
         '''
