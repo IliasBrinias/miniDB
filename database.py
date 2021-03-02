@@ -599,6 +599,7 @@ class Database:
                     # crate the actual index
                     self._construct_hashtable(table_name, column_name, index_name)
                     self.save()
+                    print("Hash index created")
                 elif index_type_formated == 'btree':
                     print('Creating Btree index.')
                     # crate the actual index
@@ -793,9 +794,6 @@ class Database:
 
     def drop_index(self, index_name):
         index_record = self.select('meta_indexes', '*', f'index_name=={index_name}', return_object=True).data
-        if not index_record:
-            print("ERROR - Index doesn't exist")
-
         db_name = self._name
         index_path = './/dbdata//' + db_name + '_db//indexes//meta_' + index_name + '_index.pkl'
         try:

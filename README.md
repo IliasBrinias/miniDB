@@ -80,3 +80,17 @@ We created the method drop_index() in the Database class.
 ```python
 >> db_object.drop_index(index_name)
 ```
+# Screenshots
+
+## Table
+![alt text](screenshots/table.png)
+## Create Hash Index
+![alt text](screenshots/create.png)
+## Select
+![alt text](screenshots/select.png)
+## Hash Join
+![alt text](screenshots/hash_join.png)
+## Visualization
+![alt text](screenshots/visualization.png)
+## Drop
+![alt text](screenshots/drop.png)
